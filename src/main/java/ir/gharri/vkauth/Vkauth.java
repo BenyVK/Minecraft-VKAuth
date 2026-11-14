@@ -35,7 +35,7 @@ public final class Vkauth extends JavaPlugin {
 
         RankLink link = new RankLink(this, cfg, storage);
         getCommand("vkauth").setExecutor(new AdminCommand(this, cfg, storage, link));
-        if (cfg.onlineRankvk()) {
+        if (cfg.onlineRankvk() || cfg.deleteWorldData()) {
             long period = cfg.linkCheckMinutes() * 1200L;
             // the first run only remembers who has an account; every later run removes deleted accounts from RankVK
             linkTask = getServer().getScheduler().runTaskTimerAsynchronously(this, link::scan, 40L, period);

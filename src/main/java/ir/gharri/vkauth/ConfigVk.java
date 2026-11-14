@@ -142,6 +142,12 @@ public final class ConfigVk {
         return t.matches("[A-Za-z0-9_]{1,64}") ? t : "players";
     }
 
+    /**
+     * delete-world-data: true = when an account is deleted, the player's data files in every world
+     * (playerdata, stats, advancements) are deleted too, so the server forgets him completely.
+     */
+    public boolean deleteWorldData() { return cfg.getBoolean("delete-world-data", false); }
+
     /** Minutes between two checks for deleted accounts (manual deletions in the file / database). */
     public int linkCheckMinutes() { return Math.max(1, cfg.getInt("link-check-minutes", 5)); }
 
