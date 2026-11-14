@@ -17,6 +17,8 @@ Players must register once and log in on every join. Until they do, they are fro
 - **Case-sensitive or case-insensitive accounts** (`replay-id-account`) — decide whether `BenyVK` and `BEnyVK` are two accounts or one
 - **Wrong-name protection** (`incorrect-installation`) — a player who joins with the wrong upper/lower case (e.g. `BEnyVK` instead of `BenyVK`) is kicked and told which name to use
 - Storage in **YAML**, **MySQL**, or **both at once**, with automatic migration between them
+- **Link with RankVK** (`online-rankvk`): when an account is deleted, that player's RankVK data (permissions, prefix, suffix) is deleted too
+- **One shared table with RankVK** (`match-signalVK`, optional): accounts and ranks of a player are saved together in one database table
 - Unauthenticated players are completely locked: movement, chat, commands, interaction, inventory, item pick-up/drop, buckets, damage (given and taken) are all blocked
 - Blocked commands are also removed from the client's tab-completion
 - Optional waiting room (`auth-map`) and optional fixed spawn after login (`start_auth_all`)
@@ -53,10 +55,17 @@ Players must register once and log in on every join. Until they do, they are fro
 | `/register <password> <confirm>` | `/reg` | Create your account |
 | `/login <password>` | `/log` | Log in to your account |
 | `/logout` | — | Leave the server (kicks you with a goodbye message) |
+| `/vkauth delete <name>` | `/authvk` | **Admin:** delete the account of a player (permission `vkauth.admin`) |
 
 These commands are the only ones usable before logging in. You can change that list with `auth-commands`. The `vkauth:` prefix is accepted too (for example `/vkauth:login`).
 
-There are no permission nodes — every player can use the commands, and there are no admin commands.
+`/register`, `/login` and `/logout` can be used by everyone. The only admin command is `/vkauth delete <name>`:
+
+| Permission | Default | Description |
+|---|---|---|
+| `vkauth.admin` | op | Delete accounts with `/vkauth delete <name>` |
+
+`/vkauth delete <name>` removes the account from every enabled storage and kicks the player if he is online (`messages.account-deleted-kick`). With `online-rankvk: true` the player's RankVK data is deleted right away too. With `replay-id-account: false` every spelling of the name is deleted.
 
 ---
 
@@ -131,7 +140,52 @@ storage:
 | `migrate` | When you change the storage type, accounts from the storage that is no longer enabled are copied into the enabled one(s). With `mysql,yaml` both are kept in sync at startup. |
 | `delete-old-after-migrate` | After a fully successful transfer, the old storage (the `accounts.yml` file or the MySQL table) is deleted |
 
-The MySQL table and its columns (`registered`, `last_login`) are created and repaired automatically.
+The MySQL table and its columns (`registered`, `last_login`) are created and repaired automatically. To keep accounts and RankVK data in one table, see [`match-signalVK`](#one-shared-table-with-rankvk-match-signalvk).
+
+### Link with RankVK: `online-rankvk`
+
+```yml
+online-rankvk: true
+link-check-minutes: 5
+```
+
+| Value | Behavior |
+|---|---|
+| `true` | When an account is deleted in vkauth, the RankVK data of that player (permissions, prefix, suffix) is deleted as well, so nothing is left behind. |
+| `false` | vkauth never touches RankVK. |
+
+- RankVK has the matching switch `online-authvk` in its `configvk.yml`. **Both must be `true`**, otherwise nothing is deleted in RankVK.
+- Both plugins must run on the same server. It works with any storage of RankVK (json, yaml, sqlite, mysql, ...), and with yaml or mysql in vkauth.
+- It works for `/vkauth delete <name>` and also for accounts deleted **by hand** (in `accounts.yml` or in the database). vkauth remembers who had an account (`linked-accounts.yml`) and every `link-check-minutes` minutes (and at startup) removes the RankVK data of everyone who vanished. `accounts.yml` is only re-read at startup, so edit it while the server is off.
+- The first run only takes a snapshot and deletes nothing. If the storage cannot be read, or suddenly looks completely empty, nothing is deleted.
+- Accounts that were deleted **before** you turned this on are not cleaned up automatically.
+
+### One shared table with RankVK: `match-signalVK`
+
+```yml
+match-signalVK: false
+match-table: players_shared
+```
+
+| Value | Behavior |
+|---|---|
+| `false` | vkauth keeps its own table (`storage.mysql.table`) (default). |
+| `true` | The account and the RankVK data of a player live in **one row of one table** (`match-table`) of the same MySQL database, for example database `minecraft`, table `players`. |
+
+It only turns on when **all** of these are true, otherwise the console says why and the normal storage is used:
+
+- `match-signalVK: true` in the config of vkauth **and** of RankVK
+- vkauth uses MySQL (`storage.type` contains `mysql`) and RankVK uses `storage-method: mysql` or `mariadb`
+- both point at the same database (same host, port and database) and have the same `match-table`
+- `match-table` is **not** the same as `storage.mysql.table`
+
+Things to know:
+
+- Each row holds the login data (`auth_*` columns) and the rank data (`rank_*` columns). Each plugin only writes its own columns.
+- Accounts of the old table (and of `accounts.yml`) are copied into the shared table once. The old table is deleted or renamed to `..._migrated`, depending on `delete-old-after-migrate`.
+- With `match-signalVK: true` every player has one row under his own UUID. `replay-id-account: false` still works (the oldest registration wins).
+- Turning `match-signalVK` off later does not copy the accounts back; they stay in the shared table.
+- If the table `match-table` already exists and has no `uuid` column, it is not touched and the shared mode stays off.
 
 ### Waiting room and spawn
 
@@ -230,6 +284,9 @@ Every message shown to players lives under `messages:` and can be changed freely
 | `{date}` | `last-login` |
 | `{attempts}`, `{max}`, `{left}` | `wrong-password` |
 | `{seconds}` | `timeout-kick` |
+| `{player}`, `{count}` | `admin-deleted` (`{player}` also in `admin-not-found`) |
+
+The admin command uses the messages `no-permission`, `admin-usage`, `admin-not-found`, `admin-deleted` and `account-deleted-kick`.
 
 ---
 
@@ -253,6 +310,7 @@ If the storage cannot be read, the player is kicked with `messages.storage-error
 | `plugins/vkauth/configvk.yml` | Settings and messages |
 | `plugins/vkauth/accounts.yml` | Accounts (when YAML storage is enabled) |
 | `plugins/vkauth/counters.yml` | Daily login/register counters for TAB names |
+| `plugins/vkauth/linked-accounts.yml` | Who had an account at the last check (used by `online-rankvk`). Do not edit |
 
 ---
 
