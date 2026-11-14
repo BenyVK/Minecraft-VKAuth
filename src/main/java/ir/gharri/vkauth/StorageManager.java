@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -15,12 +16,34 @@ public final class StorageManager {
     private final Vkauth plugin;
     private final ConfigVk cfg;
     private final List<Storage> storages = new ArrayList<>();
+    /** Table shared with RankVK (match-signalVK), or null when accounts live in their own storage. */
+    private String sharedTable;
 
     public StorageManager(Vkauth plugin, ConfigVk cfg) {
         this.plugin = plugin;
         this.cfg = cfg;
     }
 
+    /** True when accounts and RankVK data are kept together in one table. */
+    public boolean shared() {
+        return sharedTable != null;
+    }
+
+    /** The storages that are switched on in configvk.yml (the mysql one is the shared table when match-signalVK is active). */
+    private Storage createEnabled(String type) {
+        if (type.equals("mysql") && sharedTable != null) {
+            return new SharedMysqlStorage(
+                    cfg.str("storage.mysql.host"),
+                    cfg.integer("storage.mysql.port"),
+                    cfg.str("storage.mysql.database"),
+                    cfg.str("storage.mysql.username"),
+                    cfg.str("storage.mysql.password"),
+                    sharedTable);
+        }
+        return create(type);
+    }
+
+    /** A plain storage, also used to read an old storage that is no longer enabled. */
     private Storage create(String type) {
         if (type.equals("mysql")) {
             return new MysqlStorage(
@@ -36,8 +59,9 @@ public final class StorageManager {
 
     public boolean init() {
         List<String> types = cfg.storageTypes();
+        sharedTable = RankLink.sharedTable(plugin, cfg, types);
         for (String type : types) {
-            Storage s = create(type);
+            Storage s = createEnabled(type);
             try {
                 s.init();
                 storages.add(s);
@@ -99,6 +123,8 @@ public final class StorageManager {
             }
         }
 
+        if (sharedTable != null) migrateLegacyMysql();
+
         if (storages.size() > 1) {
             Map<UUID, StoredAccount> merged = new LinkedHashMap<>();
             for (Storage s : storages) {
@@ -114,6 +140,94 @@ public final class StorageManager {
             List<StoredAccount> all = new ArrayList<>(merged.values());
             for (Storage s : storages) copyMissing(all, s);
         }
+    }
+
+    /**
+     * match-signalVK was just switched on: accounts of the old separate mysql table are copied into the shared
+     * table, then the old table is dropped (delete-old-after-migrate: true) or renamed to ..._migrated.
+     */
+    private void migrateLegacyMysql() {
+        MysqlStorage old = (MysqlStorage) create("mysql");
+        List<StoredAccount> accounts;
+        try {
+            accounts = old.getAll();
+        } catch (Exception e) {
+            plugin.getLogger().warning("Migration: could not read the old mysql table (" + e.getMessage() + "), skipped.");
+            return;
+        }
+        if (accounts.isEmpty()) return;
+
+        plugin.getLogger().info("Migration: moving " + accounts.size() + " account(s) of the old mysql table into the shared table...");
+        boolean allOk = true;
+        for (Storage target : storages) {
+            if (target instanceof SharedMysqlStorage && !copyMissing(accounts, target)) allOk = false;
+        }
+        if (!allOk) {
+            plugin.getLogger().warning("Migration: the old mysql table was kept because the transfer was not fully successful.");
+            return;
+        }
+        try {
+            if (cfg.deleteOldAfterMigrate()) {
+                old.deleteAll();
+                plugin.getLogger().info("Migration: old mysql table deleted.");
+            } else {
+                old.renameTable();
+                plugin.getLogger().info("Migration: old mysql table renamed (kept as a backup).");
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Migration: could not retire the old mysql table: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Who has an account right now, for the RankVK link: id -> name. The id is the uuid, or the lower-cased name
+     * when {@code byName} (replay-id-account: false, one account for every spelling). Returns null when any storage
+     * could not be read, so a database outage is never mistaken for "all accounts were deleted".
+     */
+    public Map<String, String> identities(boolean byName) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (Storage s : storages) {
+            try {
+                for (StoredAccount a : s.getAll()) {
+                    String name = a.account().name() != null ? a.account().name() : a.name();
+                    if (byName) {
+                        if (name == null || name.isBlank() || name.equals("unknown")) continue;
+                        out.putIfAbsent(name.toLowerCase(Locale.ROOT), name);
+                    } else {
+                        out.putIfAbsent(a.uuid().toString(), name == null ? "" : name);
+                    }
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning("RankVK link: could not read " + s.name() + " (" + e.getMessage()
+                        + "), check skipped.");
+                return null;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Deletes the accounts registered under {@code name} from every storage (the admin command).
+     * Blocking - call from an async thread.
+     *
+     * @param ignoreCase true when replay-id-account is false: every spelling of the name is one account
+     * @return the accounts that were deleted
+     */
+    public List<StoredAccount> deleteByName(String name, boolean ignoreCase) {
+        List<StoredAccount> removed = new ArrayList<>();
+        for (StoredAccount m : findByNameIgnoreCase(name)) {
+            if (!ignoreCase && !name.equals(m.name())) continue;
+            removed.add(m);
+            for (Storage s : storages) {
+                try {
+                    s.deleteAccount(m.uuid());
+                } catch (Exception e) {
+                    plugin.getLogger().log(Level.WARNING, "Could not delete " + m.uuid() + " from " + s.name()
+                            + ": " + e.getMessage());
+                }
+            }
+        }
+        return removed;
     }
 
     /** Copies accounts that the target does not have yet. Returns false if anything failed. */

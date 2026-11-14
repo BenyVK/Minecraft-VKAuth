@@ -126,6 +126,25 @@ public final class ConfigVk {
         return new ArrayList<>(out);
     }
 
+    /**
+     * online-rankvk: true = deleting an account here also deletes that player's RankVK data
+     * (permissions, prefix, suffix). false = vkauth does not touch RankVK.
+     */
+    public boolean onlineRankvk() { return cfg.getBoolean("online-rankvk", true); }
+
+    /** match-signalVK: true = accounts and RankVK data live together in one table (see matchTable()). */
+    public boolean matchSignal() { return cfg.getBoolean("match-signalVK", false); }
+
+    /** Name of the table that vkauth and RankVK share when match-signalVK is active. */
+    public String matchTable() {
+        String t = cfg.getString("match-table", "players");
+        t = t == null ? "" : t.trim();
+        return t.matches("[A-Za-z0-9_]{1,64}") ? t : "players";
+    }
+
+    /** Minutes between two checks for deleted accounts (manual deletions in the file / database). */
+    public int linkCheckMinutes() { return Math.max(1, cfg.getInt("link-check-minutes", 5)); }
+
     public boolean migrate() { return cfg.getBoolean("storage.migrate", true); }
     public boolean deleteOldAfterMigrate() { return cfg.getBoolean("storage.delete-old-after-migrate", true); }
 

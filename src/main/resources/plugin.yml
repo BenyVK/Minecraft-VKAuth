@@ -3,6 +3,7 @@ version: '${version}'
 main: ir.gharri.vkauth.Vkauth
 api-version: '1.21'
 description: Register and login system
+softdepend: [RankVK]
 commands:
   register:
     description: Create your account
@@ -15,3 +16,11 @@ commands:
   logout:
     description: Leave the server
     usage: /logout
+  vkauth:
+    description: Admin command of vkauth
+    usage: /vkauth delete <name>
+    aliases: [authvk]
+permissions:
+  vkauth.admin:
+    description: Delete accounts (/vkauth delete)
+    default: op

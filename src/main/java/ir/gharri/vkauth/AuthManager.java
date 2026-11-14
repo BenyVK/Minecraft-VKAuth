@@ -51,7 +51,8 @@ public final class AuthManager {
      * replay-id-account false -> derived from the lower-cased name (BenyVK and BEnyVK are the same).
      */
     private UUID accountKey(Player player) {
-        if (cfg.replayIdAccount()) return player.getUniqueId();
+        // In the table shared with RankVK (match-signalVK) every row is one real player, so the player's own uuid is used.
+        if (storage.shared() || cfg.replayIdAccount()) return player.getUniqueId();
         String lower = player.getName().toLowerCase(Locale.ROOT);
         return UUID.nameUUIDFromBytes(("vkauth-account:" + lower).getBytes(StandardCharsets.UTF_8));
     }

@@ -191,6 +191,21 @@ public final class MysqlStorage implements Storage {
         }
     }
 
+    /** Keeps the data but gives the table another name, so it is not read (and migrated) again. */
+    public void renameTable() throws Exception {
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            if (!tableExists(c)) return;
+            String target = table + "_migrated";
+            try (PreparedStatement ps = c.prepareStatement("SHOW TABLES LIKE ?")) {
+                ps.setString(1, target.replace("_", "\\_"));
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) target = target + "_" + System.currentTimeMillis();
+                }
+            }
+            st.executeUpdate("RENAME TABLE `" + table + "` TO `" + target + "`");
+        }
+    }
+
     @Override
     public void close() {
     }

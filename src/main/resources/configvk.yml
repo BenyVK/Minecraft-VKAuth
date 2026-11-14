@@ -30,6 +30,33 @@ storage:
     table: "vkauth_accounts"
 
 # ----------------------------------------------------------------------
+# online-rankvk  (link with the RankVK plugin)
+#     true  -> when an account is deleted here, the RankVK data of that player
+#              (permissions, prefix, suffix) is deleted too, so nothing stays behind.
+#              Works for /vkauth delete <name> and also when you delete the account by hand
+#              (accounts.yml is read at startup, the MySQL table is checked every link-check-minutes).
+#     false -> vkauth never touches RankVK.
+# RankVK has the matching switch online-authvk in its configvk.yml; both must be true.
+# ----------------------------------------------------------------------
+online-rankvk: true
+link-check-minutes: 5
+
+# ----------------------------------------------------------------------
+# match-signalVK  (one table for vkauth AND RankVK)
+#     false -> vkauth keeps its own table (storage.mysql.table).
+#     true  -> accounts and RankVK data of a player live in ONE row of ONE table (match-table) of the
+#              same MySQL database, e.g. database "minecraft", table "players".
+#              Only turns on when BOTH configvk.yml files say match-signalVK: true, point at the
+#              same database (host, port, database) and have the same match-table. RankVK must use
+#              mysql / mariadb. If something does not match, the reason is printed in the console
+#              and the normal storage is used.
+#              Accounts of the old vkauth table (and accounts.yml) are copied into the shared table once.
+#              With this on, every player has one row under his own uuid.
+# ----------------------------------------------------------------------
+match-signalVK: false
+match-table: players
+
+# ----------------------------------------------------------------------
 # replay-id-account:
 #     true  -> upper/lower case of the name matters. "BenyVK" and "BEnyVK"
 #              are TWO different accounts (each has its own password).
@@ -156,3 +183,9 @@ messages:
   wrong-name-kick: "&cYour name must be &f{name} &cto log in.\n&7You joined as &f{player}&7. Please change your name and join again."
   storage-error: "&cCould not load your account. Please try again later."
   players-only: "This command can only be used by players."
+  no-permission: "{prefix}&cYou do not have permission."
+  admin-usage: "{prefix}&cUsage: /vkauth delete <name>"
+  admin-not-found: "{prefix}&cNo account found for &f{player}&c."
+  admin-deleted: "{prefix}&aDeleted {count} account(s) of &f{player}&a (RankVK data too when online-rankvk is true)."
+  account-deleted-kick: "&cYour account was deleted.\n&7Join again to register a new one."
+
