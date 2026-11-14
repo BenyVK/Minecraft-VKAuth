@@ -18,6 +18,7 @@ Players must register once and log in on every join. Until they do, they are fro
 - **Wrong-name protection** (`incorrect-installation`) — a player who joins with the wrong upper/lower case (e.g. `BEnyVK` instead of `BenyVK`) is kicked and told which name to use
 - Storage in **YAML**, **MySQL**, or **both at once**, with automatic migration between them
 - **Link with RankVK** (`online-rankvk`): when an account is deleted, that player's RankVK data (permissions, prefix, suffix) is deleted too
+- **Forget deleted players** (`delete-world-data`, optional): the player's world files are deleted together with the account
 - **One shared table with RankVK** (`match-signalVK`, optional): accounts and ranks of a player are saved together in one database table
 - Unauthenticated players are completely locked: movement, chat, commands, interaction, inventory, item pick-up/drop, buckets, damage (given and taken) are all blocked
 - Blocked commands are also removed from the client's tab-completion
@@ -56,6 +57,7 @@ Players must register once and log in on every join. Until they do, they are fro
 | `/login <password>` | `/log` | Log in to your account |
 | `/logout` | — | Leave the server (kicks you with a goodbye message) |
 | `/vkauth delete <name>` | `/authvk` | **Admin:** delete the account of a player (permission `vkauth.admin`) |
+| `/vkauth purge [confirm]` | `/authvk` | **Admin:** list (or, with `confirm`, forget) offline players who have no account (permission `vkauth.admin`) |
 
 These commands are the only ones usable before logging in. You can change that list with `auth-commands`. The `vkauth:` prefix is accepted too (for example `/vkauth:login`).
 
@@ -63,9 +65,9 @@ These commands are the only ones usable before logging in. You can change that l
 
 | Permission | Default | Description |
 |---|---|---|
-| `vkauth.admin` | op | Delete accounts with `/vkauth delete <name>` |
+| `vkauth.admin` | op | `/vkauth delete <name>` and `/vkauth purge` |
 
-`/vkauth delete <name>` removes the account from every enabled storage and kicks the player if he is online (`messages.account-deleted-kick`). With `online-rankvk: true` the player's RankVK data is deleted right away too. With `replay-id-account: false` every spelling of the name is deleted.
+`/vkauth delete <name>` removes the account from every enabled storage and kicks the player if he is online (`messages.account-deleted-kick`). With `online-rankvk: true` the player's RankVK data is deleted right away too. With `replay-id-account: false` every spelling of the name is deleted. With `delete-world-data: true` the world files of the player are deleted too.
 
 ---
 
@@ -159,6 +161,26 @@ link-check-minutes: 5
 - It works for `/vkauth delete <name>` and also for accounts deleted **by hand** (in `accounts.yml` or in the database). vkauth remembers who had an account (`linked-accounts.yml`) and every `link-check-minutes` minutes (and at startup) removes the RankVK data of everyone who vanished. `accounts.yml` is only re-read at startup, so edit it while the server is off.
 - The first run only takes a snapshot and deletes nothing. If the storage cannot be read, or suddenly looks completely empty, nothing is deleted.
 - Accounts that were deleted **before** you turned this on are not cleaned up automatically.
+
+### Forget deleted players: `delete-world-data`
+
+```yml
+delete-world-data: false
+```
+
+| Value | Behavior |
+|---|---|
+| `true` | When an account is deleted, the player's files in **every world** (`playerdata/<uuid>.dat` and `.dat_old`, `stats/<uuid>.json`, `advancements/<uuid>.json`) are deleted too. The server (and the RankVK web editor list of offline players) then forgets him. An online player is kicked first and his files are deleted about 2 seconds later. |
+| `false` | World files are never touched (default). |
+
+- It reacts to accounts that are **deleted** (`/vkauth delete`, or by hand in `accounts.yml` / the database), with the same detection as `online-rankvk` (checks every `link-check-minutes` minutes and at startup). It works even when `online-rankvk` is `false`.
+- Only the player's own files are removed. Builds, and data of other plugins (economy, Essentials, ...), stay.
+- `usercache.json` is not touched.
+- vkauth never deletes world data of players just because they have no account: a player who joined but has not registered yet would lose his data, and a database outage would look like "everybody was deleted". For players that have **no account right now** use `/vkauth purge`:
+  - `/vkauth purge` only **lists** offline players who have no account (players who joined but did not register are included!)
+  - `/vkauth purge confirm` forgets them: their RankVK data (with `online-rankvk: true`) and their world files (with `delete-world-data: true`)
+  - nothing is done when the accounts cannot be read or there are none
+- Make a backup of your worlds before the first `purge confirm`.
 
 ### One shared table with RankVK: `match-signalVK`
 
@@ -285,8 +307,9 @@ Every message shown to players lives under `messages:` and can be changed freely
 | `{attempts}`, `{max}`, `{left}` | `wrong-password` |
 | `{seconds}` | `timeout-kick` |
 | `{player}`, `{count}` | `admin-deleted` (`{player}` also in `admin-not-found`) |
+| `{count}`, `{players}` | `purge-list` (`{count}` also in `purge-done`) |
 
-The admin command uses the messages `no-permission`, `admin-usage`, `admin-not-found`, `admin-deleted` and `account-deleted-kick`.
+The admin commands use the messages `no-permission`, `admin-usage`, `admin-not-found`, `admin-deleted`, `account-deleted-kick`, `purge-refused`, `purge-none`, `purge-list` and `purge-done`.
 
 ---
 
