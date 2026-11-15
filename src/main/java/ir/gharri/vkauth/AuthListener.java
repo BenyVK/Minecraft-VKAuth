@@ -100,6 +100,8 @@ public final class AuthListener implements Listener {
     /** Remove locked commands from the command tree sent to the client's tab completer. */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onCommandSend(PlayerCommandSendEvent e) {
+        // Hide the "vkauth:login" style duplicates so chat only suggests "login"
+        e.getCommands().removeIf(command -> command.toLowerCase(Locale.ROOT).startsWith("vkauth:"));
         if (!auth.isLocked(e.getPlayer())) return;
         e.getCommands().removeIf(command -> {
             String label = command.toLowerCase(Locale.ROOT);
